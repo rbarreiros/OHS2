@@ -1,0 +1,15 @@
+sourceRoot: ../../templates/stm32f7xx/templates
+outputRoot: ..
+dataRoot: .
+
+freemarkerLinks: {
+    lib: ../../../../../ChibiOS/tools/ftl/libs
+}
+
+data : {
+  doc1:xml (
+    board.chcfg
+    {
+    }
+  )
+}
