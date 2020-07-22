@@ -39,10 +39,16 @@
 #define HTTP_POST_DATA_SIZE 1024
 #define HTTP_ALERT_MSG_SIZE 80
 static void *current_connection;
-static void *valid_connection;
+//static void *valid_connection;
+#ifdef CPU_F767
+char current_uri[LWIP_HTTPD_MAX_REQUEST_URI_LEN] __attribute__((section(".ram3")));
+char postData[HTTP_POST_DATA_SIZE] __attribute__((section(".ram3")));
+char alertMsg[HTTP_ALERT_MSG_SIZE] __attribute__((section(".ram3")));
+#else
 char current_uri[LWIP_HTTPD_MAX_REQUEST_URI_LEN] __attribute__((section(".ram4")));
 char postData[HTTP_POST_DATA_SIZE] __attribute__((section(".ram4")));
 char alertMsg[HTTP_ALERT_MSG_SIZE] __attribute__((section(".ram4")));
+#endif
 
 const char text_i_home[]            = "<i class='icon'>&#xe800;</i>";
 const char text_i_contact[]         = "<i class='icon'>&#xe801;</i>";
@@ -2318,6 +2324,7 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
       }
     }
 
+    (void)resp;
     chsnprintf(response_uri, response_uri_len, current_uri);
     DBG_HTTP("-PE-response_uri: %s\r\n", response_uri);
     current_connection = NULL;

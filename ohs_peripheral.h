@@ -53,17 +53,21 @@ static SerialConfig serialCfg = {
   0,
   0,
   0,
+#if CH_KERNEL_MAJOR < 6 && CH_KERNEL_MAJOR < 2
   NULL, NULL, NULL, NULL
+#endif
 };
 /*
  * RS485 default setting
  */
+/*
 static RS485Config rs485cfg = {
   19200,          // speed
   0,              // address
   GPIOD,          // port
   GPIOD_USART2_DE // pad
 };
+*/
 /*
  * RFM69 configuration
  */

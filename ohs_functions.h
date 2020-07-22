@@ -441,6 +441,7 @@ int8_t sendData(uint8_t address, const uint8_t *data, uint8_t length){
   int8_t resp;
 
   // RS485
+  /*
   if (address <= RADIO_UNIT_OFFSET) {
     RS485Msg_t rs485Data;
 
@@ -454,6 +455,7 @@ int8_t sendData(uint8_t address, const uint8_t *data, uint8_t length){
     if (rs485SendMsgWithACK(&RS485D2, &rs485Data, 5) == MSG_OK) resp = 1;
     else resp = -1;
   }
+  */
   // Radio
   if (address >= RADIO_UNIT_OFFSET) {
     chprintf(console, "Radio Send data to address: %d\r\n", address - RADIO_UNIT_OFFSET);
@@ -468,6 +470,7 @@ int8_t sendCmd(uint8_t address, uint8_t command) {
   int8_t resp;
 
   // RS485
+  /*
   if (address <= RADIO_UNIT_OFFSET) {
     RS485Cmd_t rs485Cmd;
 
@@ -477,6 +480,7 @@ int8_t sendCmd(uint8_t address, uint8_t command) {
     if (rs485SendCmdWithACK(&RS485D2, &rs485Cmd, 3) == MSG_OK) resp = 1;
     else resp = -1;
   }
+  */
   // Radio
   if (address >= RADIO_UNIT_OFFSET) {
     char radioCmd[] = {'C', command};

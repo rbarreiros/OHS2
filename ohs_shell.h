@@ -154,7 +154,9 @@ static void cmd_net(BaseSequentialStream *chp, int argc, char *argv[]) {
   (void)argc;
   (void)argv;
 
+  // netInfo doesn't exist, is it a global struct defined somewhere !?!?
   //chprintf(chp, "Network:\r\n-------------------------------\r\n");
+  /*
   chprintf(chp, "IP address : %u.%u.%u.%u\r\n",
            netInfo.ip & 0xff, (netInfo.ip >> 8) & 0xff,
            (netInfo.ip >> 16) & 0xff, (netInfo.ip >> 24) & 0xff);
@@ -165,6 +167,7 @@ static void cmd_net(BaseSequentialStream *chp, int argc, char *argv[]) {
            netInfo.gw & 0xff, (netInfo.gw >> 8) & 0xff,
            (netInfo.gw >> 16) & 0xff, (netInfo.gw >> 24) & 0xff);
   chprintf(chp, "Flags      : %u\r\n", netInfo.status);
+  */
   chprintf(chp, "MAC        : %02x:%02x:%02x:%02x:%02x:%02x\r\n",
            macAddr[0], macAddr[1], macAddr[2],
            macAddr[3], macAddr[4], macAddr[5]);

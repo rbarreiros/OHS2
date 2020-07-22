@@ -621,7 +621,11 @@ typedef struct {
   char     radioKey[RADIO_KEY_SIZE];
 
 } config_t;
+#ifdef CPU_F767
+config_t conf __attribute__((section(".ram3")));
+#else
 config_t conf __attribute__((section(".ram4")));
+#endif
 // Check conf size fits to backup SRAM
 typedef char check_conf[sizeof(conf) <= BACKUP_SRAM_SIZE ? 1 : -1];
 
@@ -630,7 +634,11 @@ typedef struct {
   uint8_t setting;
   uint8_t armDelay;
 } group_t;
+#ifdef CPU_F767
+group_t group[ALARM_GROUPS] __attribute__((section(".ram3")));
+#else
 group_t group[ALARM_GROUPS] __attribute__((section(".ram4")));
+#endif
 // Check conf size fits to backup SRAM
 typedef char check_group[sizeof(group) <= BACKUP_RTC_SIZE ? 1 : -1];
 
@@ -641,8 +649,11 @@ typedef struct {
   char    lastEvent;
   uint8_t setting;
 } zone_t;
+#ifdef CPU_F767
+zone_t zone[ALARM_ZONES] __attribute__((section(".ram3")));
+#else
 zone_t zone[ALARM_ZONES] __attribute__((section(".ram4")));
-
+#endif
 // Flags runtime variables
 /*
 typedef struct {
@@ -672,7 +683,12 @@ typedef struct {
   uint8_t  queue;  //   = DUMMY_NO_VALUE 255; // No queue
   char name[NAME_LENGTH]; // = "";
 } node_t;
+#ifdef CPU_F767
+node_t node[NODE_SIZE] __attribute__((section(".ram3")));
+#else
 node_t node[NODE_SIZE] __attribute__((section(".ram4")));
+#endif
+
 /*
  * Initialize node runtime struct
  */

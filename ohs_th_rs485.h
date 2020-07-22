@@ -12,6 +12,7 @@
 /*
  * RS485 thread
  */
+/*
 static THD_WORKING_AREA(waRS485Thread, 256);
 static THD_FUNCTION(RS485Thread, arg) {
   chRegSetThreadName(arg);
@@ -135,7 +136,7 @@ static THD_FUNCTION(RS485Thread, arg) {
     } // (flags & RS485_MSG_RECEIVED)
   }
 }
-
+*/
 
 
 #endif /* OHS_TH_RS485_H_ */

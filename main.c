@@ -43,9 +43,17 @@ binary_semaphore_t cbTriggerSem;
 #define UMM_MALLOC_CFG_HEAP_SIZE (1024*16)
 #define TCL_SCRIPT_LENGTH        (512)
 #define TCL_OUTPUT_LENGTH        (1024*2)
+
+#ifdef CPU_F767
+char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram3")));
+char tclOutput[TCL_OUTPUT_LENGTH] __attribute__((section(".ram3")));
+char tclCmd[TCL_SCRIPT_LENGTH] __attribute__((section(".ram3")));
+#else
 char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram4")));
 char tclOutput[TCL_OUTPUT_LENGTH] __attribute__((section(".ram4")));
 char tclCmd[TCL_SCRIPT_LENGTH] __attribute__((section(".ram4")));
+#endif
+
 // TCL
 #include "tcl.h"
 struct tcl tcl;
@@ -53,7 +61,11 @@ struct tcl tcl;
 #include "uBS.h"
 
 #define LOG_TEXT_LENGTH 80
+#ifdef CPU_F767
+char logText[LOG_TEXT_LENGTH] __attribute__((section(".ram3"))); // To decode log text
+#else
 char logText[LOG_TEXT_LENGTH] __attribute__((section(".ram4"))); // To decode log text
+#endif
 
 // OHS includes
 #include "ohs_conf.h"
@@ -73,9 +85,15 @@ volatile int8_t gprsIsAlive = 0;
 volatile int8_t gprsSetSMS = 0;
 volatile int8_t gprsReg = 2;
 volatile int8_t gprsStrength = 0;
+#ifdef CPU_F767
+char gprsModemInfo[20] __attribute__((section(".ram3"))); // SIMCOM_SIM7600x-x
+char gprsSystemInfo[80] __attribute__((section(".ram3")));
+char gprsSmsText[128] __attribute__((section(".ram3")));
+#else
 char gprsModemInfo[20] __attribute__((section(".ram4"))); // SIMCOM_SIM7600x-x
 char gprsSystemInfo[80] __attribute__((section(".ram4")));
 char gprsSmsText[128] __attribute__((section(".ram4")));
+#endif
 
 // LWIP
 #include "lwipthread.h"
@@ -106,6 +124,7 @@ char gprsSmsText[128] __attribute__((section(".ram4")));
 #define SHELL_WA_SIZE THD_WORKING_AREA_SIZE(2048)
 
 #if LWIP_MDNS_RESPONDER
+/*
 static void srv_txt(struct mdns_service *service, void *txt_userdata){
   err_t res;
   LWIP_UNUSED_ARG(txt_userdata);
@@ -113,12 +132,19 @@ static void srv_txt(struct mdns_service *service, void *txt_userdata){
   res = mdns_resp_add_service_txtitem(service, "path=/", 6);
   chprintf(console, "mdns add service txt status %d.\r\n", res);
 }
+*/
 #endif
 
 #if LWIP_MDNS_RESPONDER
+#if CH_KERNEL_MAJOR < 6 && CH_KERNEL_MAJOR < 2
 static void mdns_example_report(struct netif* netif, u8_t result, s8_t service){
   chprintf(console,"mdns status[netif %d][service %d]: %d\r\n", netif->num, service, result);
 }
+#else
+static void mdns_example_report(struct netif* netif, u8_t result){
+  chprintf(console,"mdns status[netif %d]: %d\r\n", netif->num, result);
+}
+#endif
 #endif
 
 
@@ -141,8 +167,8 @@ int main(void) {
   // Init nodes
   initRuntimeNodes();
   // RS485
-  rs485Start(&RS485D2, &rs485cfg);
-  chprintf(console, "RS485 timeout: %d(uS)/%d(tick)\r\n", RS485D2.oneByteTimeUS, RS485D2.oneByteTimeI);
+  //  rs485Start(&RS485D2, &rs485cfg);
+  //chprintf(console, "RS485 timeout: %d(uS)/%d(tick)\r\n", RS485D2.oneByteTimeUS, RS485D2.oneByteTimeI);
   // Initializes a serial-over-USB CDC driver.
   sduObjectInit(&SDU1);
   sduStart(&SDU1, &serusbcfg);
@@ -156,7 +182,7 @@ int main(void) {
   usbStart(serusbcfg.usbp, &usbcfg);
   usbConnectBus(serusbcfg.usbp);
 
-  // Initialize .ram4
+  // Initialize .ram4 or .ram3 on F767
   memset(&tclCmd[0], 0, TCL_SCRIPT_LENGTH);
   memset(&tclOutput[0], 0, TCL_OUTPUT_LENGTH);
   memset(&gprsModemInfo[0], 0, sizeof(gprsModemInfo));
@@ -206,7 +232,7 @@ int main(void) {
   chThdCreateStatic(waAEThread2, sizeof(waAEThread2), NORMALPRIO + 1, AEThread, (void*)"alarm 2");
   chThdCreateStatic(waAEThread3, sizeof(waAEThread3), NORMALPRIO + 1, AEThread, (void*)"alarm 3");
   chThdCreateStatic(waLoggerThread, sizeof(waLoggerThread), NORMALPRIO, LoggerThread, (void*)"logger");
-  chThdCreateStatic(waRS485Thread, sizeof(waRS485Thread), NORMALPRIO, RS485Thread, (void*)"RS485");
+  //chThdCreateStatic(waRS485Thread, sizeof(waRS485Thread), NORMALPRIO, RS485Thread, (void*)"RS485");
   chThdCreateStatic(waRegistrationThread, sizeof(waRegistrationThread), NORMALPRIO - 1, RegistrationThread, (void*)"registration");
   chThdCreateStatic(waSensorThread, sizeof(waSensorThread), NORMALPRIO - 1, SensorThread, (void*)"sensor");
   chThdCreateStatic(waModemThread, sizeof(waModemThread), NORMALPRIO, ModemThread, (void*)"modem");
@@ -239,7 +265,11 @@ int main(void) {
   chThdSleepMilliseconds(100);
   mdns_resp_register_name_result_cb(mdns_example_report);
   mdns_resp_init();
+#if CH_KERNEL_MAJOR < 6 && CH_KERNEL_MAJOR < 2
   mdns_resp_add_netif(netif_default, "OHS");
+#else
+  mdns_resp_add_netif(netif_default, "OHS", 255);
+#endif
   //chprintf(console, "netif_default %x\r\n", netif_default);
   //mdns_resp_add_service(netif_default, "ohs", "_http", DNSSD_PROTO_TCP, 80, srv_txt, NULL);
   //mdns_resp_announce(netif_default);
