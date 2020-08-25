@@ -76,9 +76,9 @@
 // DHCP
 #define LWIP_DHCP 1
 // IGMP
-#define LWIP_IGMP 0
+#define LWIP_IGMP 1
 // MDNS
-#define LWIP_MDNS_RESPONDER 0
+#define LWIP_MDNS_RESPONDER 1
 #define LWIP_NUM_NETIF_CLIENT_DATA (LWIP_MDNS_RESPONDER) // +1 MDSN
 // Rename thread name
 #define TCPIP_THREAD_NAME               "tcpip"

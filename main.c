@@ -41,19 +41,36 @@ binary_semaphore_t cbTriggerSem;
 #include "umm_malloc.h"
 #include "umm_malloc_cfg.h"
 #define UMM_MALLOC_CFG_HEAP_SIZE (1024*16)
+
+#ifdef CPU_F767
+char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram3")));
+#else
 char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram4")));
+#endif
+
 // TCL
 #define TCL_SCRIPT_LENGTH        (512)
 #define TCL_OUTPUT_LENGTH        (1024*2)
+
+#ifdef CPU_F767
+char tclOutput[TCL_OUTPUT_LENGTH] __attribute__((section(".ram3")));
+char tclCmd[TCL_SCRIPT_LENGTH] __attribute__((section(".ram3")));
+#else
 char tclOutput[TCL_OUTPUT_LENGTH] __attribute__((section(".ram4")));
 char tclCmd[TCL_SCRIPT_LENGTH] __attribute__((section(".ram4")));
+#endif
+
 #include "tcl.h"
 struct tcl tcl;
 // uBS
 #include "uBS.h"
 
 #define LOG_TEXT_LENGTH 80
+#ifdef CPU_F767
+char logText[LOG_TEXT_LENGTH] __attribute__((section(".ram3"))); // To decode log text
+#else
 char logText[LOG_TEXT_LENGTH] __attribute__((section(".ram4"))); // To decode log text
+#endif
 
 // OHS includes
 #include "ohs_conf.h"
@@ -73,9 +90,16 @@ volatile int8_t gprsIsAlive = 0;
 volatile int8_t gprsSetSMS = 0;
 volatile int8_t gprsReg = 2;
 volatile int8_t gprsStrength = 0;
+
+#ifdef CPU_F767
+char gprsModemInfo[20] __attribute__((section(".ram3"))); // SIMCOM_SIM7600x-x
+char gprsSystemInfo[80] __attribute__((section(".ram3")));
+char gprsSmsText[128] __attribute__((section(".ram3")));
+#else
 char gprsModemInfo[20] __attribute__((section(".ram4"))); // SIMCOM_SIM7600x-x
 char gprsSystemInfo[80] __attribute__((section(".ram4")));
 char gprsSmsText[128] __attribute__((section(".ram4")));
+#endif
 
 // LWIP
 #include "lwipthread.h"
@@ -127,6 +151,7 @@ int main(void) {
   halInit();
   chSysInit();
   // Semaphores
+
   chBSemObjectInit(&gprsSem, false);
   chBSemObjectInit(&emailSem, false);
   chBSemObjectInit(&cbTimerSem, false);
@@ -134,25 +159,33 @@ int main(void) {
   // Debug port
   sdStart(&SD3,  &serialCfg);
   chprintf(console, "\r\nOHS v.%u.%u start\r\n", OHS_MAJOR, OHS_MINOR);
+
+  /*
   // GPRS modem
   gprsInit(&SD6);
+  */
+  
   // Init nodes
   initRuntimeNodes();
   // RS485
-  rs485Start(&RS485D2, &rs485cfg);
-  chprintf(console, "RS485 timeout: %d(uS)/%d(tick)\r\n", RS485D2.oneByteTimeUS, RS485D2.oneByteTimeI);
+  // rs485Start(&RS485D2, &rs485cfg); -- TODO
+  // chprintf(console, "RS485 timeout: %d(uS)/%d(tick)\r\n", RS485D2.oneByteTimeUS, RS485D2.oneByteTimeI); -- TODO
   // Initializes a serial-over-USB CDC driver.
+
   sduObjectInit(&SDU1);
   sduStart(&SDU1, &serusbcfg);
+  
   /*
    * Activates the USB driver and then the USB bus pull-up on D+.
    * Note, a delay is inserted in order to not have to disconnect the cable
    * after a reset.
    */
+
   usbDisconnectBus(serusbcfg.usbp);
   chThdSleepMilliseconds(1500);
   usbStart(serusbcfg.usbp, &usbcfg);
   usbConnectBus(serusbcfg.usbp);
+
 
   // Initialize .ram4
   memset(&tclCmd[0], 0, TCL_SCRIPT_LENGTH);
@@ -188,8 +221,8 @@ int main(void) {
   // SPI
   spiStart(&SPID1, &spi1cfg);
   // RFM69
-  rfm69Start(&rfm69cfg);
-  rfm69SetHighPower(true);     // long range version
+  //rfm69Start(&rfm69cfg);
+  //rfm69SetHighPower(true);     // long range version
 
   // ADC1 driver
   adcStart(&ADCD1, NULL);
@@ -197,7 +230,7 @@ int main(void) {
   // UMM heap for TCL
   umm_init(&ohsUmmHeap[0], UMM_MALLOC_CFG_HEAP_SIZE);
   // uBS for FRAM
-  uBSInit();
+  //uBSInit();
 
   // Create thread(s).
   chThdCreateStatic(waZoneThread, sizeof(waZoneThread), NORMALPRIO, ZoneThread, (void*)"zone");
@@ -205,16 +238,18 @@ int main(void) {
   chThdCreateStatic(waAEThread2, sizeof(waAEThread2), NORMALPRIO + 1, AEThread, (void*)"alarm 2");
   chThdCreateStatic(waAEThread3, sizeof(waAEThread3), NORMALPRIO + 1, AEThread, (void*)"alarm 3");
   chThdCreateStatic(waLoggerThread, sizeof(waLoggerThread), NORMALPRIO, LoggerThread, (void*)"logger");
-  chThdCreateStatic(waRS485Thread, sizeof(waRS485Thread), NORMALPRIO, RS485Thread, (void*)"RS485");
+  //chThdCreateStatic(waRS485Thread, sizeof(waRS485Thread), NORMALPRIO, RS485Thread, (void*)"RS485"); -- TODO
   chThdCreateStatic(waRegistrationThread, sizeof(waRegistrationThread), NORMALPRIO - 1, RegistrationThread, (void*)"registration");
   chThdCreateStatic(waSensorThread, sizeof(waSensorThread), NORMALPRIO - 1, SensorThread, (void*)"sensor");
-  chThdCreateStatic(waModemThread, sizeof(waModemThread), NORMALPRIO, ModemThread, (void*)"modem");
-  chThdCreateStatic(waAlertThread, sizeof(waAlertThread), NORMALPRIO, AlertThread, (void*)"alert");
-  chThdCreateStatic(waServiceThread, sizeof(waServiceThread), NORMALPRIO, ServiceThread, (void*)"service");
-  chThdCreateStatic(waRadioThread, sizeof(waRadioThread), NORMALPRIO, RadioThread, (void*)"radio");
+
+  //chThdCreateStatic(waModemThread, sizeof(waModemThread), NORMALPRIO, ModemThread, (void*)"modem"); <--- GPRS
+  //chThdCreateStatic(waAlertThread, sizeof(waAlertThread), NORMALPRIO, AlertThread, (void*)"alert");
+  //chThdCreateStatic(waServiceThread, sizeof(waServiceThread), NORMALPRIO, ServiceThread, (void*)"service");
+  //chThdCreateStatic(waRadioThread, sizeof(waRadioThread), NORMALPRIO, RadioThread, (void*)"radio");
   chThdCreateStatic(waTriggerThread, sizeof(waTriggerThread), NORMALPRIO - 1, TriggerThread, (void*)"trigger");
-  chThdCreateStatic(waTclThread, sizeof(waTclThread), LOWPRIO + 1, tclThread, (void*)"tcl");
+  //chThdCreateStatic(waTclThread, sizeof(waTclThread), LOWPRIO + 1, tclThread, (void*)"tcl");
   chThdCreateStatic(waHeartBeatThread, sizeof(waHeartBeatThread), LOWPRIO, HeartBeatThread, (void*)"heartbeat");
+
   //static THD_WORKING_AREA(waShell, 2048);
   //chThdCreateStatic(waShell, sizeof(waShell), NORMALPRIO, shellThread, (void *)&shell_cfg);
 
@@ -264,7 +299,7 @@ int main(void) {
 
   // TODO OHS Allow driver to set frequency
   // RFM69 key
-  if (conf.radioKey[0] != 0) rfm69Encrypt(conf.radioKey);
+  //if (conf.radioKey[0] != 0) rfm69Encrypt(conf.radioKey); -- TODO
   // SMTP
   smtp_set_server_addr(conf.SMTPAddress);
   smtp_set_server_port(conf.SMTPPort);

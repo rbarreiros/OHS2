@@ -193,7 +193,7 @@ static void cmd_net(BaseSequentialStream *chp, int argc, char *argv[]) {
   (void)argv;
 
   // netInfo doesn't exist, is it a global struct defined somewhere !?!?
-  //chprintf(chp, "Network:\r\n-------------------------------\r\n");
+  chprintf(chp, "Network:\r\n-------------------------------\r\n");
   /*
   chprintf(chp, "IP address : %u.%u.%u.%u\r\n",
            netInfo.ip & 0xff, (netInfo.ip >> 8) & 0xff,
@@ -204,11 +204,12 @@ static void cmd_net(BaseSequentialStream *chp, int argc, char *argv[]) {
   chprintf(chp, "Gateway    : %u.%u.%u.%u\r\n",
            netInfo.gw & 0xff, (netInfo.gw >> 8) & 0xff,
            (netInfo.gw >> 16) & 0xff, (netInfo.gw >> 24) & 0xff);
-  chprintf(chp, "Flags      : %u\r\n", netInfo.status);
   */
+  //chprintf(chp, "Flags      : %u\r\n", netInfo.status);
   chprintf(chp, "MAC        : %02x:%02x:%02x:%02x:%02x:%02x\r\n",
            macAddr[0], macAddr[1], macAddr[2],
            macAddr[3], macAddr[4], macAddr[5]);
+  
 }
 /*
  * Applet to allow DFU upgrade
@@ -222,7 +223,7 @@ static void cmd_boot(BaseSequentialStream *chp, int argc, char *argv[]) {
       *((unsigned long *)0x2002FFF0) = 0xDEADBEEF; // End of RAM F437
       //*((unsigned long *)0x2001FFF0) = 0xDEADBEEF; // End of RAM F407
       // Reset PHY
-      palClearPad(GPIOE, GPIOE_ETH_RESET);
+      //palClearPad(GPIOE, GPIOE_ETH_RESET); -- TODO
       chThdSleepMilliseconds(10);
       // And now reboot
       NVIC_SystemReset();
@@ -300,7 +301,7 @@ static const ShellCommand commands[] = {
  * ShellConfig
  */
 static const ShellConfig shell_cfg = {
-  (BaseSequentialStream *)&SDU1,
+  (BaseSequentialStream *)&SDU1, 
   commands
 };
 
