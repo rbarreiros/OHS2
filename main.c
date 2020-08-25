@@ -41,31 +41,19 @@ binary_semaphore_t cbTriggerSem;
 #include "umm_malloc.h"
 #include "umm_malloc_cfg.h"
 #define UMM_MALLOC_CFG_HEAP_SIZE (1024*16)
+char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram4")));
+// TCL
 #define TCL_SCRIPT_LENGTH        (512)
 #define TCL_OUTPUT_LENGTH        (1024*2)
-
-#ifdef CPU_F767
-char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram3")));
-char tclOutput[TCL_OUTPUT_LENGTH] __attribute__((section(".ram3")));
-char tclCmd[TCL_SCRIPT_LENGTH] __attribute__((section(".ram3")));
-#else
-char ohsUmmHeap[UMM_MALLOC_CFG_HEAP_SIZE] __attribute__((section(".ram4")));
 char tclOutput[TCL_OUTPUT_LENGTH] __attribute__((section(".ram4")));
 char tclCmd[TCL_SCRIPT_LENGTH] __attribute__((section(".ram4")));
-#endif
-
-// TCL
 #include "tcl.h"
 struct tcl tcl;
 // uBS
 #include "uBS.h"
 
 #define LOG_TEXT_LENGTH 80
-#ifdef CPU_F767
-char logText[LOG_TEXT_LENGTH] __attribute__((section(".ram3"))); // To decode log text
-#else
 char logText[LOG_TEXT_LENGTH] __attribute__((section(".ram4"))); // To decode log text
-#endif
 
 // OHS includes
 #include "ohs_conf.h"
@@ -85,15 +73,9 @@ volatile int8_t gprsIsAlive = 0;
 volatile int8_t gprsSetSMS = 0;
 volatile int8_t gprsReg = 2;
 volatile int8_t gprsStrength = 0;
-#ifdef CPU_F767
-char gprsModemInfo[20] __attribute__((section(".ram3"))); // SIMCOM_SIM7600x-x
-char gprsSystemInfo[80] __attribute__((section(".ram3")));
-char gprsSmsText[128] __attribute__((section(".ram3")));
-#else
 char gprsModemInfo[20] __attribute__((section(".ram4"))); // SIMCOM_SIM7600x-x
 char gprsSystemInfo[80] __attribute__((section(".ram4")));
 char gprsSmsText[128] __attribute__((section(".ram4")));
-#endif
 
 // LWIP
 #include "lwipthread.h"
@@ -124,7 +106,6 @@ char gprsSmsText[128] __attribute__((section(".ram4")));
 #define SHELL_WA_SIZE THD_WORKING_AREA_SIZE(2048)
 
 #if LWIP_MDNS_RESPONDER
-/*
 static void srv_txt(struct mdns_service *service, void *txt_userdata){
   err_t res;
   LWIP_UNUSED_ARG(txt_userdata);
@@ -132,27 +113,19 @@ static void srv_txt(struct mdns_service *service, void *txt_userdata){
   res = mdns_resp_add_service_txtitem(service, "path=/", 6);
   chprintf(console, "mdns add service txt status %d.\r\n", res);
 }
-*/
 #endif
 
 #if LWIP_MDNS_RESPONDER
-#if CH_KERNEL_MAJOR < 6 && CH_KERNEL_MAJOR < 2
 static void mdns_example_report(struct netif* netif, u8_t result, s8_t service){
   chprintf(console,"mdns status[netif %d][service %d]: %d\r\n", netif->num, service, result);
 }
-#else
-static void mdns_example_report(struct netif* netif, u8_t result){
-  chprintf(console,"mdns status[netif %d]: %d\r\n", netif->num, result);
-}
 #endif
-#endif
-
-
-// Application entry point.
+/*
+ * Application entry point.
+ */
 int main(void) {
   halInit();
   chSysInit();
-
   // Semaphores
   chBSemObjectInit(&gprsSem, false);
   chBSemObjectInit(&emailSem, false);
@@ -163,12 +136,11 @@ int main(void) {
   chprintf(console, "\r\nOHS v.%u.%u start\r\n", OHS_MAJOR, OHS_MINOR);
   // GPRS modem
   gprsInit(&SD6);
-
   // Init nodes
   initRuntimeNodes();
   // RS485
-  //  rs485Start(&RS485D2, &rs485cfg);
-  //chprintf(console, "RS485 timeout: %d(uS)/%d(tick)\r\n", RS485D2.oneByteTimeUS, RS485D2.oneByteTimeI);
+  rs485Start(&RS485D2, &rs485cfg);
+  chprintf(console, "RS485 timeout: %d(uS)/%d(tick)\r\n", RS485D2.oneByteTimeUS, RS485D2.oneByteTimeI);
   // Initializes a serial-over-USB CDC driver.
   sduObjectInit(&SDU1);
   sduStart(&SDU1, &serusbcfg);
@@ -182,7 +154,7 @@ int main(void) {
   usbStart(serusbcfg.usbp, &usbcfg);
   usbConnectBus(serusbcfg.usbp);
 
-  // Initialize .ram4 or .ram3 on F767
+  // Initialize .ram4
   memset(&tclCmd[0], 0, TCL_SCRIPT_LENGTH);
   memset(&tclOutput[0], 0, TCL_OUTPUT_LENGTH);
   memset(&gprsModemInfo[0], 0, sizeof(gprsModemInfo));
@@ -213,17 +185,18 @@ int main(void) {
   for(uint8_t i = 0; i < SCRIPT_FIFO_SIZE; i++) { chPoolFree(&script_pool, &script_pool_queue[i]); }
   for(uint8_t i = 0; i < TRIGGER_FIFO_SIZE; i++) { chPoolFree(&trigger_pool, &trigger_pool_queue[i]); }
 
-  spiStart(&SPID1, &spi1cfg);  // SPI
-  rfm69Start(&rfm69cfg);       // RFM69
+  // SPI
+  spiStart(&SPID1, &spi1cfg);
+  // RFM69
+  rfm69Start(&rfm69cfg);
   rfm69SetHighPower(true);     // long range version
 
-  // Activates the ADC1 driver
+  // ADC1 driver
   adcStart(&ADCD1, NULL);
 
-  // UMM / TCL
+  // UMM heap for TCL
   umm_init(&ohsUmmHeap[0], UMM_MALLOC_CFG_HEAP_SIZE);
   // uBS for FRAM
-  //uBSFormat();
   uBSInit();
 
   // Create thread(s).
@@ -232,7 +205,7 @@ int main(void) {
   chThdCreateStatic(waAEThread2, sizeof(waAEThread2), NORMALPRIO + 1, AEThread, (void*)"alarm 2");
   chThdCreateStatic(waAEThread3, sizeof(waAEThread3), NORMALPRIO + 1, AEThread, (void*)"alarm 3");
   chThdCreateStatic(waLoggerThread, sizeof(waLoggerThread), NORMALPRIO, LoggerThread, (void*)"logger");
-  //chThdCreateStatic(waRS485Thread, sizeof(waRS485Thread), NORMALPRIO, RS485Thread, (void*)"RS485");
+  chThdCreateStatic(waRS485Thread, sizeof(waRS485Thread), NORMALPRIO, RS485Thread, (void*)"RS485");
   chThdCreateStatic(waRegistrationThread, sizeof(waRegistrationThread), NORMALPRIO - 1, RegistrationThread, (void*)"registration");
   chThdCreateStatic(waSensorThread, sizeof(waSensorThread), NORMALPRIO - 1, SensorThread, (void*)"sensor");
   chThdCreateStatic(waModemThread, sizeof(waModemThread), NORMALPRIO, ModemThread, (void*)"modem");
@@ -253,36 +226,36 @@ int main(void) {
   struct lwipthread_opts lwip_opts =
   { &macAddr[0], 0, 0, 0, NET_ADDRESS_DHCP
     #if LWIP_NETIF_HOSTNAME
-      ,0
+      ,"OHS"
     #endif
     ,NULL, NULL
   };
 
   lwipInit(&lwip_opts);
+  //ETH->MACFFR |= ETH_MACFFR_PAM;
   httpd_init();
   sntp_init();
-  // TODO OHS implement MDNS
+  // TODO OHS implement IGMP and MDNS
+#if LWIP_MDNS_RESPONDER
   chThdSleepMilliseconds(100);
   mdns_resp_register_name_result_cb(mdns_example_report);
   mdns_resp_init();
-#if CH_KERNEL_MAJOR < 6 && CH_KERNEL_MAJOR < 2
-  mdns_resp_add_netif(netif_default, "OHS");
-#else
-  mdns_resp_add_netif(netif_default, "OHS", 255);
-#endif
+  mdns_resp_add_netif(netif_default, "ohs");
   //chprintf(console, "netif_default %x\r\n", netif_default);
-  //mdns_resp_add_service(netif_default, "ohs", "_http", DNSSD_PROTO_TCP, 80, srv_txt, NULL);
+  mdns_resp_add_service(netif_default, "ohs", "_http", DNSSD_PROTO_TCP, 80, srv_txt, NULL);
   //mdns_resp_announce(netif_default);
   chThdSleepMilliseconds(100);
+#endif
 
   // Read last groups state
   readFromBkpRTC((uint8_t*)&group, sizeof(group), 0);
-  // Read conf.
+  // Read conf struct
   readFromBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
   chprintf(console, "Size of conf: %u, group: %u\r\n", sizeof(conf), sizeof(group));
+
   // Check if we have new major version update
   if (conf.versionMajor != OHS_MAJOR) {
-    setConfDefault(); // Load OHS default conf.
+    setConfDefault();    // Load OHS default conf.
     initRuntimeGroups(); // Initialize runtime variables
     writeToBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
     writeToBkpRTC((uint8_t*)&group, sizeof(group), 0);
@@ -321,3 +294,4 @@ int main(void) {
     }
   }
 }
+
