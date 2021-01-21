@@ -1,5 +1,6 @@
 /*
- * rfm69.c
+ * Copyright (c) Adam Baron <vysocan76@gmail.com>
+ * All rights reserved.
  *
  *  Created on: 26. 3. 2020
  *      Author: vysocan76
@@ -11,6 +12,27 @@
  * Driver definition for HopeRF RFM69W/RFM69HW/RFM69CW/RFM69HCW, Semtech SX1231/1231H
  * Copyright LowPowerLab LLC 2018, https://www.LowPowerLab.com/contact
  ************************************************************************************
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+ * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
  */
 
 #include <rfm69.h>
@@ -348,22 +370,22 @@ int8_t rfm69GetData(void) {
     //for(uint8_t q = 0; q < RFM69_INTERRUPT_DATA_SIZE; q++) { DBG("%u,", rxBuffer[q]); }
     //DBG("\r\n");
 
-    rfm69Data.payloadLength = rxBuffer[0] > 66 ? 66 : rxBuffer[0]; // precaution
+    rfm69Data.packetLength = rxBuffer[0] > 66 ? 66 : rxBuffer[0]; // precaution
     rfm69Data.targetId = rxBuffer[1] | (((uint16_t)rxBuffer[3] & 0x0C) << 6); //10 bit address (most significant 2 bits stored in bits(2,3) of CTL byte
     rfm69Data.senderId = rxBuffer[2] | (((uint16_t)rxBuffer[3] & 0x03) << 8); //10 bit address (most significant 2 bits stored in bits(0,1) of CTL byte
 
-    DBG("RFM GD: F:%u, T:%u, PL:%u\r\n", rfm69Data.senderId, rfm69Data.targetId, rfm69Data.payloadLength);
+    DBG("RFM GD: F:%u, T:%u, PL:%u\r\n", rfm69Data.senderId, rfm69Data.targetId, rfm69Data.packetLength);
 
     // Match this node's address, or broadcast address
     if (!(rfm69Data.targetId == rfm69Config.nodeID || rfm69Data.targetId == RF69_BROADCAST_ADDR) ||
-        (rfm69Data.payloadLength < 3)) {
+        (rfm69Data.packetLength < 3)) {
       spiUnselect(rfm69Config.spidp);
       spiReleaseBus(rfm69Config.spidp);
       // Clear data
       rfm69Data.length = 0;
       rfm69Data.senderId = 0;
       rfm69Data.targetId = 0;
-      rfm69Data.payloadLength = 0;
+      rfm69Data.packetLength = 0;
       rfm69Data.ackRequested = 0;
       rfm69Data.ackReceived = 0;
       rfm69Data.rssi = 0;
@@ -373,7 +395,7 @@ int8_t rfm69GetData(void) {
       return RF69_RSLT_NOK;
     }
 
-    rfm69Data.length = rfm69Data.payloadLength - 3;
+    rfm69Data.length = rfm69Data.packetLength - 3;
     rfm69Data.ackReceived = rxBuffer[3] & RF69_CTL_SENDACK; // extract ACK-received flag
     rfm69Data.ackRequested = rxBuffer[3] & RF69_CTL_REQACK; // extract ACK-requested flag
     rfm69Data.ackRssiRequested = rxBuffer[3] & RF69_CTL_RESERVE1; // extract the ACK RSSI request flag
@@ -488,7 +510,7 @@ int8_t rfm69Send(uint16_t toAddress, const void* buffer, uint8_t bufferSize, boo
  */
 int8_t rfm69SendWithRetry(uint16_t toAddress, const void* buffer, uint8_t bufferSize, uint8_t retries) {
 
-  for (uint8_t i = 0; i <= retries; i++) {
+  for (uint8_t i = 0; i < retries; i++) {
     if (rfm69Send( toAddress, buffer, bufferSize, true) == RF69_RSLT_OK) return RF69_RSLT_OK;
   }
   return RF69_RSLT_NOK;

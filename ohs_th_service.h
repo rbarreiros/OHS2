@@ -35,15 +35,19 @@ static THD_WORKING_AREA(waServiceThread, 384);
 static THD_FUNCTION(ServiceThread, arg) {
   chRegSetThreadName(arg);
   time_t  tempTime, timeNow;
-  uint8_t counterAC = 0, nodeIndex;
+  uint8_t counterAC = 1;
+  uint8_t counterMQTT = 225; // Force connect on start 255-30 seconds
+  bool    flagAC = false; // Assume power is Off on start
+  uint8_t nodeIndex;
   msg_t   resp;
   uint8_t message[6];
   char   *pResult;
   struct scriptLL_t *scrP = NULL;
 
   while (true) {
+    // 1 second sleep, we do not care much about time of execution.
     chThdSleepMilliseconds(1000);
-    // Get current time
+    // Get current time to prevent multiple queries
     timeNow = getTimeUnixSec();
 
     // Remove zombie nodes
@@ -70,21 +74,26 @@ static THD_FUNCTION(ServiceThread, arg) {
       }
     }
 
-
     // Battery check - The signal is "Low" when the voltage of battery is under 11V
     if (palReadPad(GPIOD, GPIOD_BAT_OK) == 0) {
       pushToLogText("SBL"); // Battery low
       pushToLogText("SCP"); // Configuration saved
-      // Wait for alert mb to be empty
+      // Wait for alert mb to be empty and last/all email sent
       do {
         chThdSleepMilliseconds(100);
-      } while (chMBGetFreeCountI(&alert_mb) != ALERT_FIFO_SIZE);
+        chSysLock();
+        // Check Alert queue
+        resp = chMBGetFreeCountI(&alert_mb);
+        // Check asynchronous email state
+        if (chBSemGetStateI(&emailSem)) resp--;
+        chSysUnlock();
+      } while (resp != ALERT_FIFO_SIZE);
       // Backup
       writeToBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
       writeToBkpRTC((uint8_t*)&group, sizeof(group), 0);
       // Lock RTOS
       chSysLock();
-      // Battery is at low level but it might oscillate, so we wait for AC start
+      // Battery is at low level but it might oscillate, so we wait for AC start or when PSU shut off battery
       while (palReadPad(GPIOD, GPIOD_AC_OFF)) { // The signal turns to be "High" when the power supply turns OFF
         // do nothing, wait for power supply shutdown
       }
@@ -98,17 +107,24 @@ static THD_FUNCTION(ServiceThread, arg) {
     if (!resp && (counterAC > 1)) counterAC--;
     if (!resp && (counterAC == 1)) {
       counterAC--;
-      pushToLogText("SAH"); // AC ON
+      if (!flagAC) {
+        pushToLogText("SAH"); // AC ON
+        flagAC = true;
+      }
     }
     if (resp && (counterAC < AC_POWER_DELAY)) counterAC++;
     if (resp && (counterAC == AC_POWER_DELAY)) {
       counterAC++;
-      pushToLogText("SAL"); // AC OFF
+      if (flagAC) {
+        pushToLogText("SAL"); // AC OFF
+        flagAC = false;
+      }
     }
 
     // Group auto arm
     for (uint8_t groupNum=0; groupNum < ALARM_GROUPS ; groupNum++){
-      if (GET_CONF_GROUP_ENABLED(conf.group[groupNum]) && GET_CONF_GROUP_AUTO_ARM(conf.group[groupNum])) {
+      if (GET_CONF_GROUP_ENABLED(conf.group[groupNum].setting)
+          && GET_CONF_GROUP_AUTO_ARM(conf.group[groupNum].setting)) {
         tempTime = 0;
         // List through zones
         for (uint8_t zoneNum=0; zoneNum < ALARM_ZONES ; zoneNum++){
@@ -172,9 +188,8 @@ static THD_FUNCTION(ServiceThread, arg) {
                   //DBG_SERVICE("MB full %d\r\n", temp);
                 }
                 // Wait for result
-                resp = chBSemWaitTimeout(&cbTimerSem, TIME_MS2I(300));
-                if (resp == MSG_OK) {
-                  if (atoi(pResult) > 0) SET_CONF_TIMER_RESULT(conf.timer[i].setting);
+                if (chBSemWaitTimeout(&cbTimerSem, TIME_MS2I(300)) == MSG_OK) {
+                  if (strtoul(pResult, NULL, 0) > 0) SET_CONF_TIMER_RESULT(conf.timer[i].setting);
                 }
               }
             } else {
@@ -194,7 +209,8 @@ static THD_FUNCTION(ServiceThread, arg) {
               if (sendData(conf.timer[i].toAddress, message, 6) == 1) {
                 node[nodeIndex].lastOK = timeNow; // update receiving node current timestamp
                 node[nodeIndex].value   = conf.timer[i].constantOn; // update receiving node value
-                // *** publishNode(_update_node); // MQTT
+                // MQTT
+                if (GET_NODE_MQTT(node[nodeIndex].setting)) pushToMqtt(typeSensor, nodeIndex, functionValue);
               }
             }
           }
@@ -215,7 +231,8 @@ static THD_FUNCTION(ServiceThread, arg) {
                 if (sendData(conf.timer[i].toAddress, message, 6) == 1) {
                   node[nodeIndex].lastOK = timeNow; // update receiving node current timestamp
                   node[nodeIndex].value   = conf.timer[i].constantOff; // update receiving node value
-                  // *** publishNode(_update_node); // MQTT
+                  // MQTT
+                  if (GET_NODE_MQTT(node[nodeIndex].setting)) pushToMqtt(typeSensor, nodeIndex, functionValue);
                 }
               }
             }
@@ -247,7 +264,8 @@ static THD_FUNCTION(ServiceThread, arg) {
                 if (sendData(conf.trigger[i].toAddress, message, 6) == 1) {
                   node[nodeIndex].lastOK = timeNow; // update receiving node current timestamp
                   node[nodeIndex].value   = conf.trigger[i].constantOff; // update receiving node value
-                  // *** publishNode(_update_node); // MQTT
+                  // MQTT
+                  if (GET_NODE_MQTT(node[nodeIndex].setting)) pushToMqtt(typeSensor, nodeIndex, functionValue);
                 }
               }
             }
@@ -262,7 +280,17 @@ static THD_FUNCTION(ServiceThread, arg) {
       }
     }
 
-    //
+    // MQTT connection
+    if ((netInfo.status & LWIP_NSC_IPV4_ADDR_VALID) && (!mqtt_client_is_connected(&mqtt_client))) {
+      // Force try connection every counterMQTT overflow
+      if (counterMQTT == 0) CLEAR_CONF_MQTT_CONNECT_ERROR(conf.mqtt.setting);
+      // Try to connect if that makes sense
+      if (!GET_CONF_MQTT_CONNECT_ERROR(conf.mqtt.setting) &&
+          !GET_CONF_MQTT_ADDRESS_ERROR(conf.mqtt.setting)) {
+        mqttDoConnect(&mqtt_client);
+      }
+      counterMQTT++;
+    }
   }
 }
 

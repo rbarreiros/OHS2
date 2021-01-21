@@ -26,7 +26,6 @@ void cbTrigger (char *result) {
   // Result is ready
   chBSemSignal(&cbTriggerSem);
 }
-
 /*
  * Trigger thread
  */
@@ -113,9 +112,8 @@ static THD_FUNCTION(TriggerThread, arg) {
                       //DBG_SERVICE("MB full %d\r\n", temp);
                     }
                     // Wait for result
-                    msg = chBSemWaitTimeout(&cbTriggerSem, TIME_MS2I(300));
-                    if (msg == MSG_OK) {
-                      if (atoi(pResult) > 0) SET_CONF_TRIGGER_RESULT(conf.trigger[i].setting);
+                    if (chBSemWaitTimeout(&cbTriggerSem, TIME_MS2I(300)) == MSG_OK) {
+                      if (strtoul(pResult, NULL, 0) > 0) SET_CONF_TRIGGER_RESULT(conf.trigger[i].setting);
                     }
                   }
                 } else {
@@ -163,7 +161,8 @@ static THD_FUNCTION(TriggerThread, arg) {
                       if (GET_CONF_TRIGGER_PASS(conf.trigger[i].setting) > 1) {
                         SET_CONF_TRIGGER_PASSED(conf.trigger[i].setting);
                       }
-                      // ++++ publishNode(nodeIndex); // MQTT
+                      // MQTT
+                      if (GET_NODE_MQTT(node[nodeIndex].setting)) pushToMqtt(typeSensor, nodeIndex, functionValue);
                     }
                   }
                 } // Node found
@@ -200,7 +199,8 @@ static THD_FUNCTION(TriggerThread, arg) {
                     }
                     CLEAR_CONF_TRIGGER_TRIGGERED(conf.trigger[i].setting);
                     CLEAR_CONF_TRIGGER_PASSED(conf.trigger[i].setting);
-                    // +++ publishNode(nodeIndex); // MQTT
+                    // MQTT
+                    if (GET_NODE_MQTT(node[nodeIndex].setting)) pushToMqtt(typeSensor, nodeIndex, functionValue);
                   }
                 } //found
               } // if

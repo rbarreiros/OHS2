@@ -2,10 +2,22 @@
  * ohs_peripherial.h
  *
  *  Created on: 23. 2. 2020
- *      Author: adam
+ *      Author: vysocan
  *
  * Peripheral configurations
  */
+/*
+ * FRAM on SPI related
+ */
+#define CMD_25AA_WRSR     0x01  // Write status register
+#define CMD_25AA_WRITE    0x02
+#define CMD_25AA_READ     0x03
+#define CMD_25AA_WRDI     0x04  // Write Disable
+#define CMD_25AA_RDSR     0x05  // Read Status Register
+#define CMD_25AA_WREN     0x06  // Write Enable
+#define CMD_25AA_RDID     0x9F  // Read FRAM ID
+#define STATUS_25AA_WEL   0b00000010  // write enable latch (1 == write enable)
+//#define STATUS_25AA_WIP   0b00000001  // write in progress
 /*
  * SPI macros for 168Mhz
  * Peripherial Clock /4 = 42MHz for SPI2 SPI3
@@ -80,7 +92,12 @@ rfm69Config_t rfm69cfg = {
  */
 #define ADC_GRP1_NUM_CHANNELS 11
 #define ADC_GRP1_BUF_DEPTH    1
-#define ADC_SCALING_VBAT      (0.0032f) // 3.3V/4095 * (2 for F407) or * (4 fpr F437)
+// Scaling factor for VBAT, 3.3V/4095 * (2 for F407) or * (4 for F437)
+#ifdef STM32F437_MCUCONF
+#define ADC_SCALING_VBAT      (0.0032f)
+#else
+#define ADC_SCALING_VBAT      (0.0016f)
+#endif
 static adcsample_t adcSamples[ADC_GRP1_NUM_CHANNELS * ADC_GRP1_BUF_DEPTH];
 /*
  * ADC callback
@@ -101,17 +118,17 @@ static const ADCConversionGroup adcgrpcfg1 = {
   adcerrorcallback,
   0,                        /* CR1 */
   ADC_CR2_SWSTART,          /* CR2 */
-  ADC_SMPR1_SMP_AN10(ADC_SAMPLE_15) |
-  ADC_SMPR1_SMP_AN12(ADC_SAMPLE_15) |
-  ADC_SMPR1_SMP_AN13(ADC_SAMPLE_15) |
-  ADC_SMPR1_SMP_VBAT(ADC_SAMPLE_15), /* Sample times for channels 10-18 */
-  ADC_SMPR2_SMP_AN0(ADC_SAMPLE_15) |
-  ADC_SMPR2_SMP_AN3(ADC_SAMPLE_15) |
-  ADC_SMPR2_SMP_AN4(ADC_SAMPLE_15) |
-  ADC_SMPR2_SMP_AN5(ADC_SAMPLE_15) |
-  ADC_SMPR2_SMP_AN6(ADC_SAMPLE_15) |
-  ADC_SMPR2_SMP_AN8(ADC_SAMPLE_15) |
-  ADC_SMPR2_SMP_AN9(ADC_SAMPLE_15) , /* Sample times for channels 0-9 */
+  ADC_SMPR1_SMP_AN10(ADC_SAMPLE_28) |
+  ADC_SMPR1_SMP_AN12(ADC_SAMPLE_28) |
+  ADC_SMPR1_SMP_AN13(ADC_SAMPLE_28) |
+  ADC_SMPR1_SMP_VBAT(ADC_SAMPLE_480), /* Sample times for channels 10-18 */
+  ADC_SMPR2_SMP_AN0(ADC_SAMPLE_28) |
+  ADC_SMPR2_SMP_AN3(ADC_SAMPLE_28) |
+  ADC_SMPR2_SMP_AN4(ADC_SAMPLE_28) |
+  ADC_SMPR2_SMP_AN5(ADC_SAMPLE_28) |
+  ADC_SMPR2_SMP_AN6(ADC_SAMPLE_28) |
+  ADC_SMPR2_SMP_AN8(ADC_SAMPLE_28) |
+  ADC_SMPR2_SMP_AN9(ADC_SAMPLE_28) , /* Sample times for channels 0-9 */
   0, /* SQR1 Conversion sequence 13-16*/
   0, /* HRT */
   0, /* LTR */

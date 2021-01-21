@@ -27,7 +27,7 @@
 #endif
 
 #ifndef HTTP_DEBUG
-#define HTTP_DEBUG 1
+#define HTTP_DEBUG 0
 #endif
 
 #if HTTP_DEBUG
@@ -39,7 +39,6 @@
 #define HTTP_POST_DATA_SIZE 1024
 #define HTTP_ALERT_MSG_SIZE 80
 static void *current_connection;
-static void *valid_connection;
 char current_uri[LWIP_HTTPD_MAX_REQUEST_URI_LEN] __attribute__((section(".ram4")));
 char postData[HTTP_POST_DATA_SIZE] __attribute__((section(".ram4")));
 char alertMsg[HTTP_ALERT_MSG_SIZE] __attribute__((section(".ram4")));
@@ -103,6 +102,7 @@ const char html_select[]            = "<select name='";
 const char html_Apply[]             = "<input type='submit' name='A' value='Apply'/>";
 const char html_ApplyValPass[]      = "<input type='submit' name='A' value='Apply' onclick='return pv()'/>";
 const char html_Save[]              = "<input type='submit' name='e' value='Save'/>";
+const char html_LoadDefault[]       = "<input type='submit' name='D' value='Load defaults'/>";
 const char html_Reregister[]        = "<input type='submit' name='R' value='Call registration'/>";
 const char html_Now[]               = "<input type='submit' name='N' value='Now'/>";
 const char html_FR[]                = "<input type='submit' name='R' value='<<'/>";
@@ -145,7 +145,7 @@ const char JSdis1[]                 = "dis1();";
 const char JSdis2[]                 = "dis2();";
 const char JSContact[]              = "var e1=document.querySelectorAll(\"#g\");"
                                       "var d1=document.querySelectorAll(\"#xx\");";
-const char JSCredential[]           = "var tc=document.querySelectorAll(\"#p,#d\");";
+const char JSCredential[]           = "var tc=document.querySelectorAll(\"#p\");";
 const char JSZone[]                 = "var e1=document.querySelectorAll(\"#xx\");"
                                       "var d1=document.querySelectorAll(\"#a1,#a0\");";
 const char JSTimer[]                = "var e1=document.querySelectorAll(\"#s,#S\");"
@@ -288,8 +288,8 @@ void selectGroup(BaseSequentialStream *chp, uint8_t selected, char name) {
     chprintf(chp, "%s%u", html_option, i);
     if (selected == i) { chprintf(chp, "%s", html_selected); }
     else               { chprintf(chp, "%s", html_e_tag); }
-    chprintf(chp, "%u. %s - ", i + 1, conf.groupName[i]);
-    GET_CONF_GROUP_ENABLED(conf.group[i]) ? chprintf(chp, "%s", text_On) : chprintf(chp, "%s", text_Off);
+    chprintf(chp, "%u. %s - ", i + 1, conf.group[i].name);
+    GET_CONF_GROUP_ENABLED(conf.group[i].setting) ? chprintf(chp, "%s", text_On) : chprintf(chp, "%s", text_Off);
     chprintf(chp, "%s", html_e_option);
   }
   chprintf(chp, "%s%u", html_option, DUMMY_GROUP);
@@ -298,19 +298,24 @@ void selectGroup(BaseSequentialStream *chp, uint8_t selected, char name) {
   chprintf(chp, "%s%s", NOT_SET, html_e_option);
   chprintf(chp, "%s", html_e_select);
 }
-
+/*
+ * Print node value to stream
+ */
 void printNodeValue(BaseSequentialStream *chp, const uint8_t index) {
-  if (node[index].type != 'K') {
-    switch(node[index].function){
-      case 'T': chprintf(chp, "%.2f °C", node[index].value); break;
-      case 'H':
-      case 'X': chprintf(chp, "%.2f %%", node[index].value); break;
-      case 'P': chprintf(chp, "%.2f mBar", node[index].value); break;
-      case 'V':
-      case 'B': chprintf(chp, "%.2f V", node[index].value); break;
-      case 'G': chprintf(chp, "%.2f ppm", node[index].value); break;
-      default: chprintf(chp, "%.2f", node[index].value); break;
-    }
+  switch(node[index].function){
+    case 'T': chprintf(chp, "%.2f °C", node[index].value); break;
+    case 'H':
+    case 'X': chprintf(chp, "%.2f %%", node[index].value); break;
+    case 'P': chprintf(chp, "%.2f mBar", node[index].value); break;
+    case 'V':
+    case 'B': chprintf(chp, "%.2f V", node[index].value); break;
+    case 'G': chprintf(chp, "%.2f ppm", node[index].value); break;
+    case 'i':
+      if ((uint8_t)node[index].value != DUMMY_NO_VALUE) {
+        chprintf(chp, "%s", conf.contact[conf.key[(uint8_t)node[index].value].contact].name);
+      }
+      break;
+    default: chprintf(chp, "%.2f", node[index].value); break;
   }
 }
 
@@ -356,6 +361,8 @@ void printTimeInput(BaseSequentialStream *chp, const char name, const uint8_t ho
   chprintf(chp, "%s%c%s", html_id_tag, name, html_m_tag);
   chprintf(chp, "%02u:%02u%s", hour, minute, html_i_tag_2);
 }
+
+// IPv4: <input type="text" minlength="7" maxlength="15" size="15" pattern="^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])(\.(?!$)|$)){4}$">
 
 void printTextArea(BaseSequentialStream *chp, const char name, const char *value,
                    const uint16_t maxSize, const uint8_t cols, const uint8_t rows){
@@ -415,7 +422,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
       // JavaScript enable/disable on body load
       switch (htmlPage) {
         case PAGE_USER:
-          GET_CONF_CONTACT_IS_GLOBAL(conf.contact[webContact]) ? chprintf(chp, JSen1) : chprintf(chp, JSdis1);
+          GET_CONF_CONTACT_IS_GLOBAL(conf.contact[webContact].setting) ? chprintf(chp, JSen1) : chprintf(chp, JSdis1);
           break;
         case PAGE_ZONE:
           GET_CONF_ZONE_TYPE(conf.zone[webZone]) ? chprintf(chp, JSen1) : chprintf(chp, JSdis1);
@@ -475,7 +482,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
               chprintf(chp, "%s", html_e_td_td);
               printOkNok(chp, GET_NODE_ENABLED(node[i].setting));
               chprintf(chp, "%s", html_e_td_td);
-              printOkNok(chp, GET_NODE_MQTT_PUB(node[i].setting));
+              printOkNok(chp, GET_NODE_MQTT(node[i].setting));
               chprintf(chp, "%s", html_e_td_td);
               printFrmTimestamp(chp, &node[i].lastOK);
               chprintf(chp, "%s", html_e_td_td);
@@ -515,7 +522,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Node, text_is, html_e_td_td);
           printOnOffButton(chp, "0", GET_NODE_ENABLED(node[webNode].setting));
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_MQTT, text_publish, html_e_td_td);
-          printOnOffButton(chp, "7", GET_NODE_MQTT_PUB(node[webNode].setting));
+          printOnOffButton(chp, "7", GET_NODE_MQTT(node[webNode].setting));
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Group, html_e_td_td);
           selectGroup(chp, GET_NODE_GROUP(node[webNode].setting), 'g');
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
@@ -534,21 +541,22 @@ int fs_open_custom(struct fs_file *file, const char *name){
           // Information table
           for (uint8_t i = 0; i < CONTACTS_SIZE; i++) {
             chprintf(chp, "%s%u.%s", html_tr_td, i + 1, html_e_td_td);
-            chprintf(chp, "%s%s", conf.contactName[i], html_e_td_td);
-            printOkNok(chp, GET_CONF_CONTACT_ENABLED(conf.contact[i]));
-            chprintf(chp, "%s%s", html_e_td_td, conf.contactPhone[i]);
-            chprintf(chp, "%s%s", html_e_td_td, conf.contactEmail[i]);
+            chprintf(chp, "%s%s", conf.contact[i].name, html_e_td_td);
+            printOkNok(chp, GET_CONF_CONTACT_ENABLED(conf.contact[i].setting));
+            chprintf(chp, "%s%s", html_e_td_td, conf.contact[i].phone);
+            chprintf(chp, "%s%s", html_e_td_td, conf.contact[i].email);
             chprintf(chp, "%s", html_e_td_td);
-            printOkNok(chp, GET_CONF_CONTACT_IS_GLOBAL(conf.contact[i]));
+            printOkNok(chp, GET_CONF_CONTACT_IS_GLOBAL(conf.contact[i].setting));
             chprintf(chp, "%s", html_e_td_td);
             logAddress = 0; // Just temp. var.
             for (uint8_t j = 0; j < KEYS_SIZE; j++) {
-              if (conf.keyContact[j] == i) {
+              if (conf.key[j].contact == i) {
                 logAddress++;
               }
             }
             chprintf(chp, "%u%s", logAddress, html_e_td_td);
-            if (!GET_CONF_CONTACT_IS_GLOBAL(conf.contact[i])) printGroup(chp, GET_CONF_CONTACT_GROUP(conf.contact[i]));
+            if (!GET_CONF_CONTACT_IS_GLOBAL(conf.contact[i].setting))
+              printGroup(chp, GET_CONF_CONTACT_GROUP(conf.contact[i].setting));
             else chprintf(chp, "%s", text_all);
             chprintf(chp, "%s", html_e_td_e_tr);
           }
@@ -560,21 +568,21 @@ int fs_open_custom(struct fs_file *file, const char *name){
             chprintf(chp, "%s%u", html_option, i);
             if (webContact == i) { chprintf(chp, "%s", html_selected); }
             else                 { chprintf(chp, "%s", html_e_tag); }
-            chprintf(chp, "%u. %s%s", i + 1, conf.contactName[i], html_e_option);
+            chprintf(chp, "%u. %s%s", i + 1, conf.contact[i].name, html_e_option);
           }
           chprintf(chp, "%s%s", html_e_select, html_e_td_e_tr_tr_td);
           chprintf(chp, "%s%s", text_Name, html_e_td_td);
-          printTextInput(chp, 'n', conf.contactName[webContact], NAME_LENGTH);
+          printTextInput(chp, 'n', conf.contact[webContact].name, NAME_LENGTH);
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_User, text_is, html_e_td_td);
-          printOnOffButton(chp, "0", GET_CONF_CONTACT_ENABLED(conf.contact[webContact]));
+          printOnOffButton(chp, "0", GET_CONF_CONTACT_ENABLED(conf.contact[webContact].setting));
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Number, html_e_td_td);
-          printTextInput(chp, 'p', conf.contactPhone[webContact], PHONE_LENGTH);
+          printTextInput(chp, 'p', conf.contact[webContact].phone, PHONE_LENGTH);
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Email, html_e_td_td);
-          printTextInput(chp, 'm', conf.contactEmail[webContact], EMAIL_LENGTH);
+          printTextInput(chp, 'm', conf.contact[webContact].email, EMAIL_LENGTH);
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Global, html_e_td_td);
-          printOnOffButtonWJS(chp, "5", GET_CONF_CONTACT_IS_GLOBAL(conf.contact[webContact]), 1, 0b10);
+          printOnOffButtonWJS(chp, "5", GET_CONF_CONTACT_IS_GLOBAL(conf.contact[webContact].setting), 1, 0b10);
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Group, html_e_td_td);
-          selectGroup(chp, GET_CONF_CONTACT_GROUP(conf.contact[webContact]), 'g');
+          selectGroup(chp, GET_CONF_CONTACT_GROUP(conf.contact[webContact].setting), 'g');
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
           // JavaScript
           chprintf(chp, "%s%s%s", html_script, JSContact, html_e_script);
@@ -589,12 +597,12 @@ int fs_open_custom(struct fs_file *file, const char *name){
           // Information table
           for (uint8_t i = 0; i < KEYS_SIZE; i++) {
             chprintf(chp, "%s%u.%s", html_tr_td, i + 1, html_e_td_td);
-            if (conf.keyContact[i] == DUMMY_NO_VALUE) chprintf(chp, "%s", NOT_SET);
-            else chprintf(chp, "%s", conf.contactName[conf.keyContact[i]]);
+            if (conf.key[i].contact == DUMMY_NO_VALUE) chprintf(chp, "%s", NOT_SET);
+            else chprintf(chp, "%s", conf.contact[conf.key[i].contact].name);
             chprintf(chp, "%s", html_e_td_td);
-            printOkNok(chp, GET_CONF_KEY_ENABLED(conf.keySetting[i]));
+            printOkNok(chp, GET_CONF_KEY_ENABLED(conf.key[i].setting));
             chprintf(chp, "%s", html_e_td_td);
-            uint32Conv.val = conf.keyValue[i];
+            uint32Conv.val = conf.key[i].value;
             printKey(chp, (char *)&uint32Conv.byte[0]);
             chprintf(chp, "%s", html_e_td_e_tr);
           }
@@ -614,22 +622,22 @@ int fs_open_custom(struct fs_file *file, const char *name){
           for (uint8_t i = 0; i <= CONTACTS_SIZE; i++) {
             if (i < CONTACTS_SIZE) {
               chprintf(chp, "%s%u", html_option, i);
-              if (conf.keyContact[webKey] == i) { chprintf(chp, "%s", html_selected); }
-              else                              { chprintf(chp, "%s", html_e_tag); }
-              chprintf(chp, "%u. %s%s", i + 1, conf.contactName[i], html_e_option);
+              if (conf.key[webKey].contact == i) { chprintf(chp, "%s", html_selected); }
+              else                               { chprintf(chp, "%s", html_e_tag); }
+              chprintf(chp, "%u. %s%s", i + 1, conf.contact[i].name, html_e_option);
             } else {
               chprintf(chp, "%s%u", html_option, DUMMY_NO_VALUE);
-              if (conf.keyContact[webKey] == DUMMY_NO_VALUE) { chprintf(chp, "%s", html_selected); }
-              else                                           { chprintf(chp, "%s", html_e_tag); }
+              if (conf.key[webKey].contact == DUMMY_NO_VALUE) { chprintf(chp, "%s", html_selected); }
+              else                                            { chprintf(chp, "%s", html_e_tag); }
               chprintf(chp, "%s%s", NOT_SET, html_e_option);
             }
           }
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Key, text_is, html_e_td_td);
-          printOnOffButton(chp, "0", GET_CONF_KEY_ENABLED(conf.keySetting[webKey]));
+          printOnOffButton(chp, "0", GET_CONF_KEY_ENABLED(conf.key[webKey].setting));
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Hash, html_e_td_td);
           chprintf(chp, "%s%u%s%u", html_t_tag_1, KEY_LENGTH * 2, html_s_tag_2, KEY_LENGTH * 2);
           chprintf(chp, "%sk%s", html_s_tag_3, html_m_tag);
-          uint32Conv.val = conf.keyValue[webKey];
+          uint32Conv.val = conf.key[webKey].value;
           printKey(chp, (char *)&uint32Conv.byte[0]);
           chprintf(chp, "%s%k%s", html_id_tag, html_e_tag);
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
@@ -647,6 +655,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%s", html_e_th_th, text_Delay);
           chprintf(chp, "%s%s %s", html_e_th_th, text_Last, text_alarm);
           chprintf(chp, "%s%s %s", html_e_th_th, text_Last, text_OK);
+          chprintf(chp, "%s%s", html_e_th_th, text_MQTT);
           chprintf(chp, "%s%s", html_e_th_th, text_Status);
           chprintf(chp, "%s%s%s\r\n", html_e_th_th, text_Group, html_e_th_e_tr);
           // Information table
@@ -658,8 +667,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
               chprintf(chp, "%s", html_e_td_td);
               if (GET_CONF_ZONE_ENABLED(conf.zone[i])) {
                 GET_CONF_ZONE_BALANCED(conf.zone[i]) ? chprintf(chp, "%s ", text_balanced) : chprintf(chp, "un%s ", text_balanced);
-                GET_CONF_ZONE_IS_REMOTE(conf.zone[i]) ? chprintf(chp, "%s ", text_remote) : chprintf(chp, "%s ", text_local);
-                if (GET_CONF_ZONE_IS_BATTERY(conf.zone[i])) chprintf(chp, "%s ", text_battery);
+                (i > HW_ZONES) ? chprintf(chp, "%s ", text_remote) : chprintf(chp, "%s ", text_local);
                 GET_CONF_ZONE_TYPE(conf.zone[i]) ? chprintf(chp, "%s", text_analog) : chprintf(chp, "%s", text_digital);
               }
               chprintf(chp, "%s", html_e_td_td);
@@ -674,6 +682,8 @@ int fs_open_custom(struct fs_file *file, const char *name){
               if (GET_CONF_ZONE_ENABLED(conf.zone[i])) printFrmTimestamp(chp, &zone[i].lastPIR);
               chprintf(chp, "%s", html_e_td_td);
               if (GET_CONF_ZONE_ENABLED(conf.zone[i])) printFrmTimestamp(chp, &zone[i].lastOK);
+              chprintf(chp, "%s", html_e_td_td);
+              if (GET_CONF_ZONE_ENABLED(conf.zone[i])) printOkNok(chp, GET_CONF_ZONE_MQTT_PUB(conf.zone[i]));
               chprintf(chp, "%s", html_e_td_td);
               if (GET_CONF_ZONE_ENABLED(conf.zone[i])) {
                 switch(zone[i].lastEvent){
@@ -714,8 +724,10 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Balanced, html_e_td_td);
           printOnOffButton(chp, "a", GET_CONF_ZONE_BALANCED(conf.zone[webZone]));
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Authentication, text_delay, html_e_td_td);
-          printFourButton(chp, "d", GET_CONF_ZONE_AUTH_TIME(conf.zone[webZone]), 0, 0b0000,
+          printFourButton(chp, "D", GET_CONF_ZONE_AUTH_TIME(conf.zone[webZone]), 0, 0b0000,
                           text_0x, text_1x, text_2x, text_3x, 0);
+          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_MQTT, text_publish, html_e_td_td);
+                    printOnOffButton(chp, "d", GET_CONF_ZONE_MQTT_PUB(conf.zone[webZone]));
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Group, html_e_td_td);
           selectGroup(chp, GET_CONF_ZONE_GROUP(conf.zone[webZone]), 'g');
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
@@ -795,71 +807,104 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%ss", html_e_th_th, text_Authentication);
           chprintf(chp, "%s%ss", html_e_th_th, text_Sensor);
           chprintf(chp, "%s%ss", html_e_th_th, text_Contact);
-          chprintf(chp, "%s%s %s", html_e_th_th, text_Alarm, text_trigger);
+          chprintf(chp, "%s%s", html_e_th_th, text_Trigger);
+          chprintf(chp, "%s%s", html_e_th_th, text_MQTT);
           chprintf(chp, "%s%s", html_e_th_th, text_Armed);
           chprintf(chp, "%s%s%s\r\n", html_e_th_th, text_Status, html_e_th_e_tr);
           // Information table
           for (uint8_t i = 0; i < ALARM_GROUPS; i++) {
             chprintf(chp, "%s%u.%s", html_tr_td, i + 1, html_e_td_td);
-            chprintf(chp, "%s%s", conf.groupName[i], html_e_td_td);
-            printOkNok(chp, GET_CONF_GROUP_ENABLED(conf.group[i]));
+            chprintf(chp, "%s%s", conf.group[i].name, html_e_td_td);
+            printOkNok(chp, GET_CONF_GROUP_ENABLED(conf.group[i].setting));
             chprintf(chp, "%s", html_e_td_td);
-            printOkNok(chp, GET_CONF_GROUP_AUTO_ARM(conf.group[i]));
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting))
+              printOkNok(chp, GET_CONF_GROUP_AUTO_ARM(conf.group[i].setting));
             chprintf(chp, "%s", html_e_td_td);
-            printGroup(chp, GET_CONF_GROUP_ARM_CHAIN(conf.group[i]));
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting))
+              printGroup(chp, GET_CONF_GROUP_ARM_CHAIN(conf.group[i].setting));
             chprintf(chp, "%s", html_e_td_td);
-            printGroup(chp, GET_CONF_GROUP_DISARM_CHAIN(conf.group[i]));
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting))
+              printGroup(chp, GET_CONF_GROUP_DISARM_CHAIN(conf.group[i].setting));
             chprintf(chp, "%s", html_e_td_td);
-            logAddress = 0; // Just temp. var.
-            for (uint8_t j = 0; j < ALARM_ZONES; j++) {
-              if (GET_CONF_ZONE_GROUP(conf.zone[j]) == i) {
-                if (logAddress > 0) chprintf(chp, "%s", html_br);
-                chprintf(chp, "%u. %s", j+1, conf.zoneName[j]);
-                logAddress++;
-              }
-            }
-            logAddress = 0; // Just temp. var.
-            chprintf(chp, "%s", html_e_td_td);
-            for (uint8_t j = 0; j < NODE_SIZE; j++) {
-              if ((GET_NODE_GROUP(node[j].setting) == i) && (node[j].type == 'K')) {
-                if (logAddress > 0) chprintf(chp, "%s", html_br);
-                chprintf(chp, "%u. %s", j+1, node[j].name);
-                logAddress++;
-              }
-            }
-            logAddress = 0; // Just temp. var.
-            chprintf(chp, "%s", html_e_td_td);
-            for (uint8_t j = 0; j < NODE_SIZE; j++) {
-              if ((GET_NODE_GROUP(node[j].setting) == i) && (node[j].type == 'S')) {
-                if (logAddress > 0) chprintf(chp, "%s", html_br);
-                chprintf(chp, "%u. %s", j+1, node[j].name);
-                logAddress++;
-              }
-            }
-            logAddress = 0; // Just temp. var.
-            chprintf(chp, "%s", html_e_td_td);
-            for (uint8_t j = 0; j < CONTACTS_SIZE; j++) {
-              if ((GET_CONF_CONTACT_GROUP(conf.contact[j]) == i) ||
-                  (GET_CONF_CONTACT_IS_GLOBAL(conf.contact[j]))){
-                if (logAddress > 0) chprintf(chp, "%s", html_br);
-                chprintf(chp, "%s", conf.contactName[j]);
-                logAddress++;
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              logAddress = 0; // Just temp. var.
+              for (uint8_t j = 0; j < ALARM_ZONES; j++) {
+                if ((GET_CONF_ZONE_ENABLED(conf.zone[j])) &&
+                    (GET_CONF_ZONE_GROUP(conf.zone[j]) == i)) {
+                  if (logAddress > 0) chprintf(chp, "%s", html_br);
+                  chprintf(chp, "%u. %s", j+1, conf.zoneName[j]);
+                  logAddress++;
+                }
               }
             }
             chprintf(chp, "%s", html_e_td_td);
-            chprintf(chp, "%s", html_e_td_td);
-            if (GET_GROUP_ARMED(group[i].setting)) {
-              if GET_GROUP_ARMED_HOME(group[i].setting) { chprintf(chp, "%s", text_i_home); }
-              else                                      { chprintf(chp, "%s", text_i_OK); }
-            } else {
-              if (group[i].armDelay > 0) { chprintf(chp, "%s", text_i_starting); }
-              else                       { chprintf(chp, "%s", text_i_disabled); }
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              logAddress = 0; // Just temp. var.
+              for (uint8_t j = 0; j < NODE_SIZE; j++) {
+                if (GET_NODE_ENABLED(node[j].setting) &&
+                    (GET_NODE_GROUP(node[j].setting) == i) &&
+                    (node[j].type == 'K')) {
+                  if (logAddress > 0) chprintf(chp, "%s", html_br);
+                  chprintf(chp, "%u. %s", j+1, node[j].name);
+                  logAddress++;
+                }
+              }
             }
             chprintf(chp, "%s", html_e_td_td);
-            if (GET_GROUP_ALARM(group[i].setting) == 0) {
-              if (GET_GROUP_WAIT_AUTH(group[i].setting)) { chprintf(chp, "%s", text_i_starting); }
-              else                                       { chprintf(chp, "%s", text_i_OK); }
-            } else { chprintf(chp, "%s", text_i_alarm); }
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              logAddress = 0; // Just temp. var.
+              for (uint8_t j = 0; j < NODE_SIZE; j++) {
+                if (GET_NODE_ENABLED(node[j].setting) &&
+                    (GET_NODE_GROUP(node[j].setting) == i) &&
+                    (node[j].type == 'S')) {
+                  if (logAddress > 0) chprintf(chp, "%s", html_br);
+                  chprintf(chp, "%u. %s", j+1, node[j].name);
+                  logAddress++;
+                }
+              }
+            }
+            chprintf(chp, "%s", html_e_td_td);
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              logAddress = 0; // Just temp. var.
+              for (uint8_t j = 0; j < CONTACTS_SIZE; j++) {
+                if (GET_CONF_CONTACT_ENABLED(conf.contact[j].setting) &&
+                    ((GET_CONF_CONTACT_GROUP(conf.contact[j].setting) == i) ||
+                     (GET_CONF_CONTACT_IS_GLOBAL(conf.contact[j].setting)))){
+                  if (logAddress > 0) chprintf(chp, "%s", html_br);
+                  chprintf(chp, "%s", conf.contact[j].name);
+                  logAddress++;
+                }
+              }
+            }
+            chprintf(chp, "%s", html_e_td_td); // show relays
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              chprintf(chp, "%s:", text_Alarm);
+              if (GET_CONF_GROUP_PIR1(conf.group[i].setting)) chprintf(chp, " %s 1", text_relay);
+              if (GET_CONF_GROUP_PIR2(conf.group[i].setting)) chprintf(chp, " %s 2", text_relay);
+              chprintf(chp, "%s%s:", html_br, text_Tamper);
+              if (GET_CONF_GROUP_TAMPER1(conf.group[i].setting)) chprintf(chp, " %s 1", text_relay);
+              if (GET_CONF_GROUP_TAMPER2(conf.group[i].setting)) chprintf(chp, " %s 2", text_relay);
+            }
+            chprintf(chp, "%s", html_e_td_td);
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting))
+              printOkNok(chp, GET_CONF_GROUP_MQTT(conf.group[i].setting));
+            chprintf(chp, "%s", html_e_td_td);
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              if (GET_GROUP_ARMED(group[i].setting)) {
+                if GET_GROUP_ARMED_HOME(group[i].setting) { chprintf(chp, "%s", text_i_home); }
+                else                                      { chprintf(chp, "%s", text_i_OK); }
+              } else {
+                if (group[i].armDelay > 0) { chprintf(chp, "%s", text_i_starting); }
+                else                       { chprintf(chp, "%s", text_i_disabled); }
+              }
+            }
+            chprintf(chp, "%s", html_e_td_td);
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
+              if (GET_GROUP_ALARM(group[i].setting) == 0) {
+                if (GET_GROUP_WAIT_AUTH(group[i].setting)) { chprintf(chp, "%s", text_i_starting); }
+                else                                       { chprintf(chp, "%s", text_i_OK); }
+              } else { chprintf(chp, "%s", text_i_alarm); }
+            }
             chprintf(chp, "%s", html_e_td_e_tr);
           }
           chprintf(chp, "%s%s", html_e_table, html_table);
@@ -869,27 +914,29 @@ int fs_open_custom(struct fs_file *file, const char *name){
             chprintf(chp, "%s%u", html_option, i);
             if (webGroup == i) { chprintf(chp, "%s", html_selected); }
             else               { chprintf(chp, "%s", html_e_tag); }
-            chprintf(chp, "%u. %s%s", i + 1, conf.groupName[i], html_e_option);
+            chprintf(chp, "%u. %s%s", i + 1, conf.group[i].name, html_e_option);
           }
           chprintf(chp, "%s%s", html_e_select, html_e_td_e_tr_tr_td);
           chprintf(chp, "%s%s", text_Name, html_e_td_td);
-          printTextInput(chp, 'n', conf.groupName[webGroup], NAME_LENGTH);
+          printTextInput(chp, 'n', conf.group[webGroup].name, NAME_LENGTH);
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Group, text_is, html_e_td_td);
-          printOnOffButton(chp, "0", GET_CONF_GROUP_ENABLED(conf.group[webGroup]));
+          printOnOffButton(chp, "0", GET_CONF_GROUP_ENABLED(conf.group[webGroup].setting));
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Auto, text_arm, html_e_td_td);
-          printOnOffButton(chp, "5", GET_CONF_GROUP_AUTO_ARM(conf.group[webGroup]));
+          printOnOffButton(chp, "5", GET_CONF_GROUP_AUTO_ARM(conf.group[webGroup].setting));
           chprintf(chp, "%s%s %ss %s 1%s", html_e_td_e_tr_tr_td,  text_Alarm, text_trigger, text_relay, html_e_td_td);
-          printOnOffButton(chp, "4", GET_CONF_GROUP_PIR1(conf.group[webGroup]));
+          printOnOffButton(chp, "4", GET_CONF_GROUP_PIR1(conf.group[webGroup].setting));
           chprintf(chp, "%s%s %ss %s 1%s", html_e_td_e_tr_tr_td,  text_Alarm, text_trigger, text_relay, html_e_td_td);
-          printOnOffButton(chp, "3", GET_CONF_GROUP_PIR2(conf.group[webGroup]));
+          printOnOffButton(chp, "3", GET_CONF_GROUP_PIR2(conf.group[webGroup].setting));
           chprintf(chp, "%s%s %ss %s 2%s", html_e_td_e_tr_tr_td,  text_Tamper, text_trigger, text_relay, html_e_td_td);
-          printOnOffButton(chp, "2", GET_CONF_GROUP_TAMPER1(conf.group[webGroup]));
+          printOnOffButton(chp, "2", GET_CONF_GROUP_TAMPER1(conf.group[webGroup].setting));
           chprintf(chp, "%s%s %ss %s 2%s", html_e_td_e_tr_tr_td,  text_Tamper, text_trigger, text_relay, html_e_td_td);
-          printOnOffButton(chp, "1", GET_CONF_GROUP_TAMPER2(conf.group[webGroup]));
+          printOnOffButton(chp, "1", GET_CONF_GROUP_TAMPER2(conf.group[webGroup].setting));
+          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td,  text_MQTT, text_publish, html_e_td_td);
+          printOnOffButton(chp, "7", GET_CONF_GROUP_MQTT(conf.group[webGroup].setting));
           chprintf(chp, "%s%s %s %s%s", html_e_td_e_tr_tr_td, text_Arm, text_group, text_chain, html_e_td_td);
-          selectGroup(chp, GET_CONF_GROUP_ARM_CHAIN(conf.group[webGroup]), 'a');
+          selectGroup(chp, GET_CONF_GROUP_ARM_CHAIN(conf.group[webGroup].setting), 'a');
           chprintf(chp, "%s%s %s %s%s", html_e_td_e_tr_tr_td, text_Disarm, text_group, text_chain, html_e_td_td);
-          selectGroup(chp, GET_CONF_GROUP_DISARM_CHAIN(conf.group[webGroup]), 'd');
+          selectGroup(chp, GET_CONF_GROUP_DISARM_CHAIN(conf.group[webGroup].setting), 'd');
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
           // Buttons
           chprintf(chp, "%s%s", html_Apply, html_Save);
@@ -930,7 +977,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%s %s%s%s%", html_e_td_e_tr_tr_td, text_System, text_info, html_e_td_td, &gprsSystemInfo[7]);
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
           // Buttons
-          //chprintf(chp, "%s%s", html_Apply, html_Save);
+          chprintf(chp, "%s%s", html_LoadDefault, html_Save);
           break;
         case PAGE_SETTING:
           // Information table
@@ -956,7 +1003,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%s%s", html_tr_td, text_Key, html_e_td_td);
           printTextInputWMin(chp, 'K', conf.radioKey, RADIO_KEY_SIZE, RADIO_KEY_SIZE);
           chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Frequency, html_e_td_td);
-          printTwoButton(chp, "1", GET_CONF_SYSTEM_FLAG_RADIO_FREQ(conf.systemFlags), 1, 0b00,
+          printTwoButton(chp, "1", GET_CONF_SYSTEM_FLAG_RADIO_FREQ(conf.systemFlags), 0, 0b00,
                                    "868 Mhz", "915 Mhz");
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
 
@@ -968,10 +1015,25 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_User, text_name, html_e_td_td);
           printTextInput(chp, 'c', conf.SMTPUser, EMAIL_LENGTH);
           chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_User, text_password, html_e_td_td);
-          printPassInput(chp, 'd', conf.SMTPPassword, NAME_LENGTH, 1); chprintf(chp, "%s", html_br);
-          printPassInput(chp, 'D', conf.SMTPPassword, NAME_LENGTH, 1);
+          printPassInput(chp, 'd', conf.SMTPPassword, NAME_LENGTH, 1);
+          // chprintf(chp, "%s", html_br); printPassInput(chp, 'D', conf.SMTPPassword, NAME_LENGTH, 1);
           chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
 
+          chprintf(chp, "<h1>%s</h1>\r\n%s", text_MQTT, html_table);
+          chprintf(chp, "%s%s %s%s", html_tr_td, text_Server, text_address, html_e_td_td);
+          printTextInput(chp, 'y', conf.mqtt.address, URL_LENGTH);
+          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Server, text_port, html_e_td_td);
+          printIntInput(chp, 'q', conf.mqtt.port, 5, 0, 65535);
+          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_User, text_name, html_e_td_td);
+          printTextInput(chp, 't', conf.mqtt.user, NAME_LENGTH);
+          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_User, text_password, html_e_td_td);
+          printPassInput(chp, 'r', conf.mqtt.password, NAME_LENGTH, 1);
+          // chprintf(chp, "%s", html_br); printPassInput(chp, 'R', conf.mqtt.password, NAME_LENGTH, 1);
+          chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Connected, html_e_td_td);
+          printOkNok(chp, !(GET_CONF_MQTT_CONNECT_ERROR(conf.mqtt.setting) | GET_CONF_MQTT_ADDRESS_ERROR(conf.mqtt.setting)));
+          chprintf(chp, "%s%s%s", html_e_td_e_tr_tr_td, text_Subscribe, html_e_td_td);
+          printOnOffButton(chp, "0", GET_CONF_MQTT_SUBSCRIBE(conf.mqtt.setting));
+          chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
           chprintf(chp, "<h1>%s</h1>\r\n%s", text_NTP, html_table);
           chprintf(chp, "%s%s %s%s", html_tr_td, text_Server, text_address,
                    html_e_td_td);
@@ -1035,12 +1097,13 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%s %s ", html_e_select, text_at);
           printIntInput(chp, 'h', conf.timeStdHour , 2, 0, 23);
           chprintf(chp, " %s", text_oclock);
-          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td, text_Standard, text_offset, html_e_td_td);
+          chprintf(chp, "%s%s %s%s", html_e_td_e_tr_tr_td,
+                   text_Standard, text_offset, html_e_td_td);
           printIntInput(chp, 'o', conf.timeStdOffset, 5, -1440, 1440);
           chprintf(chp, " %s%s", durationSelect[1], html_e_td_e_tr_tr_td);
-          chprintf(chp, " %s %s%s", text_Time, text_format, html_e_td_td);
+          chprintf(chp, "%s %s%s", text_Time, text_format, html_e_td_td);
           printTextInput(chp, 'g', conf.dateTimeFormat, NAME_LENGTH);
-          chprintf(chp, "%s%s%s", html_e_td_e_tr, html_e_table);
+          chprintf(chp, "%s%s", html_e_td_e_tr, html_e_table);
 
           // JavaScript
           chprintf(chp, "%s%s%s", html_script, JSCredential, html_e_script);
@@ -1370,7 +1433,7 @@ int fs_open_custom(struct fs_file *file, const char *name){
           chprintf(chp, "%sy%sy' onchange='sd(this)%s", html_select, html_id_tag, html_e_tag);
           logAddress = 0; number = 0;
           for (uint8_t i = 0; i < ALARM_GROUPS; i++) {
-            if (GET_CONF_GROUP_ENABLED(conf.group[i])) {
+            if (GET_CONF_GROUP_ENABLED(conf.group[i].setting)) {
               chprintf(chp, "%s%u", html_option, logAddress);
               if ((conf.trigger[webTrigger].type == 'G') && (conf.trigger[webTrigger].number == i)) {
                 chprintf(chp, "%s", html_selected);
@@ -1755,8 +1818,17 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                   */
                 break;
                 case 'n': // name
+                  // Calculate resp for MQTT
+                  if (GET_NODE_ENABLED(node[webNode].setting) &&
+                      GET_NODE_MQTT(node[webNode].setting)) {
+                    if (strlen(node[webNode].name) != valueLen) resp = 1;
+                    else resp = strncmp(node[webNode].name, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  } else resp = 0;
+                  // Replace name
                   strncpy(node[webNode].name, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
                   node[webNode].name[LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                  // MQTT
+                  if (resp) pushToMqtt(typeSensor, webNode, functionName);
                 break;
                 case '0' ... '7': // Handle all single radio buttons for settings
                   if (valueP[0] == '0') node[webNode].setting &= ~(1 << (name[0]-48));
@@ -1782,24 +1854,24 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                   if (number != webContact) { webContact = number; repeat = 0; }
                 break;
                 case 'n': // name
-                  strncpy(conf.contactName[webContact], valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
-                  conf.contactName[webContact][LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                  strncpy(conf.contact[webContact].name, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  conf.contact[webContact].name[LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
                   break;
                 case 'p': // phone number
-                  strncpy(conf.contactPhone[webContact], valueP, LWIP_MIN(valueLen, PHONE_LENGTH - 1));
-                  conf.contactPhone[webContact][LWIP_MIN(valueLen, PHONE_LENGTH - 1)] = 0;
+                  strncpy(conf.contact[webContact].phone, valueP, LWIP_MIN(valueLen, PHONE_LENGTH - 1));
+                  conf.contact[webContact].phone[LWIP_MIN(valueLen, PHONE_LENGTH - 1)] = 0;
                   break;
                 case 'm': // email
-                  strncpy(conf.contactEmail[webContact], valueP, LWIP_MIN(valueLen, EMAIL_LENGTH - 1));
-                  conf.contactEmail[webContact][LWIP_MIN(valueLen, EMAIL_LENGTH - 1)] = 0;
+                  strncpy(conf.contact[webContact].email, valueP, LWIP_MIN(valueLen, EMAIL_LENGTH - 1));
+                  conf.contact[webContact].email[LWIP_MIN(valueLen, EMAIL_LENGTH - 1)] = 0;
                 break;
                 case '0' ... '7': // Handle all single radio buttons for settings
-                  if (valueP[0] == '0') conf.contact[webContact] &= ~(1 << (name[0]-48));
-                  else                  conf.contact[webContact] |=  (1 << (name[0]-48));
+                  if (valueP[0] == '0') conf.contact[webContact].setting &= ~(1 << (name[0]-48));
+                  else                  conf.contact[webContact].setting |=  (1 << (name[0]-48));
                 break;
                 case 'g': // group
                   number = strtol(valueP, NULL, 10);
-                  SET_CONF_CONTACT_GROUP(conf.contact[webContact], number);
+                  SET_CONF_CONTACT_GROUP(conf.contact[webContact].setting, number);
                 break;
                 case 'e': // save
                   writeToBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
@@ -1817,14 +1889,14 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                   if (number != webKey) { webKey = number; repeat = 0; }
                 break;
                 case 'c': // Contact ID
-                  conf.keyContact[webKey] = strtol(valueP, NULL, 10);
+                  conf.key[webKey].contact = strtol(valueP, NULL, 10);
                 break;
                 case 'k': // key
-                  conf.keyValue[webKey] = strtoul(valueP, NULL, 16); // as unsigned long int
+                  conf.key[webKey].value = strtoul(valueP, NULL, 16); // as unsigned long int
                 break;
                 case '0' ... '7': // Handle all single radio buttons for settings
-                  if (valueP[0] == '0') conf.keySetting[webKey] &= ~(1 << (name[0]-48));
-                  else                  conf.keySetting[webKey] |=  (1 << (name[0]-48));
+                  if (valueP[0] == '0') conf.key[webKey].setting &= ~(1 << (name[0]-48));
+                  else                  conf.key[webKey].setting |=  (1 << (name[0]-48));
                 break;
                 case 'e': // save
                   writeToBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
@@ -1842,13 +1914,25 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                   if (number != webZone) { webZone = number; repeat = 0; }
                 break;
                 case 'A': // Apply, for remote zone send packet.
-                  //
+                  if (GET_CONF_ZONE_ENABLED(conf.zone[webZone]) &&
+                      GET_CONF_ZONE_MQTT_PUB(conf.zone[webZone])) {
+                    pushToMqtt(typeZone, webZone, functionState);
+                  }
                 break;
                 case 'n': // name
+                  // Calculate resp for MQTT
+                  if (GET_CONF_ZONE_ENABLED(conf.zone[webZone]) &&
+                      GET_CONF_ZONE_MQTT_PUB(conf.zone[webZone])) {
+                    if (strlen(conf.zoneName[webZone]) != valueLen) resp = 1;
+                    else resp = strncmp(conf.zoneName[webZone], valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  } else resp = 0;
+                  // Replace name
                   strncpy(conf.zoneName[webZone], valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
                   conf.zoneName[webZone][LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                  // MQTT
+                  if (resp) pushToMqtt(typeZone, webZone, functionName);
                 break;
-                case 'd': // delay
+                case 'D': // delay
                   SET_CONF_ZONE_AUTH_TIME(conf.zone[webZone], (valueP[0] - 48));
                 break;
                 case '0' ... '9': // Handle all single radio buttons for settings
@@ -1856,6 +1940,7 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                   else                  conf.zone[webZone] |=  (1 << (name[0]-48));
                 break;
                 case 'a': // Handle all single radio buttons for settings 10 ->
+                case 'd':
                   if (valueP[0] == '0') conf.zone[webZone] &= ~(1 << (name[0]-87)); // a(97) - 10
                   else                  conf.zone[webZone] |=  (1 << (name[0]-87));
                 break;
@@ -1911,22 +1996,36 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                   if (number != webGroup) { webGroup = number; repeat = 0; }
                 break;
                 case 'A': // Apply
+                  // MQTT publish state
+                  if (GET_CONF_GROUP_ENABLED(conf.group[webGroup].setting) &&
+                      GET_CONF_GROUP_MQTT(conf.group[webGroup].setting)) {
+                    pushToMqtt(typeGroup, webGroup, functionState);
+                  }
                 break;
                 case 'n': // name
-                  strncpy(conf.groupName[webGroup], valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
-                  conf.groupName[webGroup][LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                  // Calculate resp for MQTT
+                  if (GET_CONF_GROUP_ENABLED(conf.group[webGroup].setting) &&
+                      GET_CONF_GROUP_MQTT(conf.group[webGroup].setting)) {
+                    if (strlen(conf.group[webGroup].name) != valueLen) resp = 1;
+                    else resp = strncmp(conf.group[webGroup].name, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  } else resp = 0;
+                  // Replace name
+                  strncpy(conf.group[webGroup].name, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  conf.group[webGroup].name[LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                  // MQTT
+                  if (resp) pushToMqtt(typeGroup, webGroup, functionName);
                 break;
                 case '0' ... '7': // Handle all single radio buttons for settings
-                  if (valueP[0] == '0') conf.group[webGroup] &= ~(1 << (name[0]-48));
-                  else                  conf.group[webGroup] |=  (1 << (name[0]-48));
+                  if (valueP[0] == '0') conf.group[webGroup].setting &= ~(1 << (name[0]-48));
+                  else                  conf.group[webGroup].setting |=  (1 << (name[0]-48));
                 break;
                 case 'a': // arm chain
                   number = strtol(valueP, NULL, 10);
-                  SET_CONF_GROUP_ARM_CHAIN(conf.group[webGroup], number);
+                  SET_CONF_GROUP_ARM_CHAIN(conf.group[webGroup].setting, number);
                 break;
                 case 'd': // disarm chain
                   number = strtol(valueP, NULL, 10);
-                  SET_CONF_GROUP_DISARM_CHAIN(conf.group[webGroup], number);
+                  SET_CONF_GROUP_DISARM_CHAIN(conf.group[webGroup].setting, number);
                 break;
                 case 'e': // save
                   writeToBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
@@ -1978,6 +2077,31 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
                 case 'd': // SMTP password
                   strncpy(conf.SMTPPassword, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
                   conf.SMTPPassword[LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                break;
+                case 'y': // MQTT server
+                  // Compute resp
+                  if (strlen(conf.mqtt.address) != valueLen) resp = 1;
+                  else resp = strncmp(conf.mqtt.address, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  // Copy name
+                  strncpy(conf.mqtt.address, valueP, LWIP_MIN(valueLen, URL_LENGTH - 1));
+                  conf.mqtt.address[LWIP_MIN(valueLen, URL_LENGTH - 1)] = 0;
+                  // Clear MQTT resolve flag
+                  if (resp) CLEAR_CONF_MQTT_ADDRESS_ERROR(conf.mqtt.setting);
+                break;
+                case 'q': // MQTT port
+                  conf.mqtt.port = strtol(valueP, NULL, 10);
+                break;
+                case 't': // MQTT user
+                  strncpy(conf.mqtt.user, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  conf.mqtt.user[LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                break;
+                case 'r': // MQTT password
+                  strncpy(conf.mqtt.password, valueP, LWIP_MIN(valueLen, NAME_LENGTH - 1));
+                  conf.mqtt.password[LWIP_MIN(valueLen, NAME_LENGTH - 1)] = 0;
+                break;
+                case '0': // MQTT subscribe
+                  if (valueP[0] == '0') conf.mqtt.setting &= ~(1 << (name[0]-48));
+                  else                  conf.mqtt.setting |=  (1 << (name[0]-48));
                 break;
                 case 'f': // NTP server
                   strncpy(conf.SNTPAddress, valueP, LWIP_MIN(valueLen, URL_LENGTH - 1));
@@ -2032,7 +2156,12 @@ void httpd_post_finished(void *connection, char *response_uri, u16_t response_ur
               repeat = getPostData(&postDataP, &name[0], sizeof(name), &valueP, &valueLen);
               DBG_HTTP("Parse: %s = '%.*s' (%u)\r\n", name, valueLen, valueP, valueLen);
               switch(name[0]){
-                case 'A': // Apply
+                case 'e': // save
+                  writeToBkpSRAM((uint8_t*)&conf, sizeof(config_t), 0);
+                break;
+                case 'D': // Load defaults
+                  setConfDefault();    // Load OHS default conf.
+                  initRuntimeGroups(); // Initialize runtime variables
                 break;
               }
             } while (repeat);
